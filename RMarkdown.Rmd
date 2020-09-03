@@ -1,0 +1,215 @@
+---
+title: "Reproducible Research Course Project 2"
+author: "Neil Bungcayao"
+date: "9/4/2020"
+output:
+ html_document:
+    keep_md: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set( fig.path = "figs/fig-")
+```
+
+# An Analysis on the Impact of Severe Weather Events on the Population Health and the Economy of the United States
+
+<br />
+
+## Introduction 
+
+<br />
+
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.
+
+This project involves exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
+
+<br />
+
+## Synopsis
+
+<br />
+
+This submission is a part of the requirement on the Johns Hopkins University Data Science Specialization Course 5: *Reproducible Research* Course Project. On this Course Project, the goal is to explore and analyze the NOAA Storm Database and use the two questions as guidance for insights. The analysis addresses the two questions being asked namely:
+
+* Across the United States, which types of events (as indicated in the ***EVTYPE*** variable) are most harmful with respect to **population health**?
+
+* Across the United States, which types of events have the greatest **economic consequences**?
+
+
+Results show that ***Tornado*** is the number one cause of fatalities and injuries in the United States. On the other hand, looking at the impact of weather events on the economy. It was seen that **Flood** have the largest damage on crops and much more emphasis on properties. 
+
+
+<br />
+
+## Data Processing
+
+<br />
+
+#### Data Retrieval and Loading
+
+This part initializes the retrieval of the dataset to be used for the analysis, downloads the file and encode it as a readable csv file. Checks are also made to ensure no repetition of downloading the data and overwriting of the csv file. This also saves time on running.
+
+```{r download, echo=TRUE, message=FALSE, warning=FALSE, cache=, include=TRUE, cache = TRUE}
+zipfile <-"storm_data.zip"
+if (!file.exists(zipfile)) {
+        download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", destfile =  "storm_data.zip")
+}
+```
+
+
+```{r loading, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE, cache= TRUE}
+if (!"storm_data" %in% ls()) {
+        storm_data <- read.csv("storm_data.zip")
+}
+
+```
+
+<br />
+
+#### Data Checking and Data Formatting
+
+This part further examines the data by checking the column names and initial values on each of the variable.
+
+```{r head, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+    library(knitr)
+    library(kableExtra)
+    names(storm_data)
+    kable(storm_data[1:3, 1:12])  %>%
+        kable_styling(font_size = 8)
+    kable(storm_data[1:3, 13:26]) %>%
+        kable_styling(font_size = 8)
+    kable(storm_data[1:3, 27:37]) %>%
+        kable_styling(font_size = 8)
+```
+
+<br />
+
+#### Subsetting the Data
+
+Subsetting `storm_data` to include only the relevant columns needed to address the questions. Thus, two data sets are formed: `health_data` and `economic_data`.
+
+``` {r subsetting, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE, cache= TRUE}
+library(dplyr)
+health_data <- storm_data %>% 
+    select(EVTYPE, FATALITIES, INJURIES)
+economic_data <-  storm_data %>% 
+    select(EVTYPE, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP)
+
+```
+
+Next, further checking the dimensions and the characteristics of the variables that will be used for the analysis.
+``` {r checking, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+
+kable(health_data[1:10,])
+kable(economic_data[1:10,])
+unique(economic_data$PROPDMGEXP)
+unique(economic_data$CROPDMGEXP)
+
+```
+
+The structure of the `health_data` can be further modified for it to be suitable for the analysis.
+
+``` {r melt, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+library(reshape2)
+library(dplyr)
+health_data_reshaped <- melt(health_data, id.vars = "EVTYPE", measure.vars = c("FATALITIES", "INJURIES"))
+health_data_reshaped <- health_data_reshaped %>% rename(HARM = variable, VALUE = value)
+kable(health_data_reshaped[1:10,])
+```
+
+<br />
+
+#### Recoding the Variables
+
+Variables `PROPDMGEX` and `PROPDMGEXP` on the `economic_data` will be recoded. The recoding done is based on the analysis that can be found on this: [How To Handle Exponent Value of PROPDMGEXP and CROPDMGEXP](https://rstudio-pubs-static.s3.amazonaws.com/58957_37b6723ee52b455990e149edde45e5b6.html)
+
+``` {r recoding, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+economic_data$PROPDMGEXP <- ifelse(economic_data$PROPDMGEXP %in% c("H", "h"), 100,
+                                   ifelse(economic_data$PROPDMGEXP %in% c("K", "k"), 1000,
+                                          ifelse(economic_data$PROPDMGEXP %in% c("M", "m"), 1000000,
+                                                 ifelse(economic_data$PROPDMGEXP %in% c("B", "b"), 1000000000, 0))))
+economic_data$CROPDMGEXP <- ifelse(economic_data$CROPDMGEXP %in% c("H", "h"), 100,
+                                   ifelse(economic_data$CROPDMGEXP %in% c("K", "k"), 1000,
+                                          ifelse(economic_data$CROPDMGEXP %in% c("M", "m"), 1000000,
+                                                 ifelse(economic_data$CROPDMGEXP %in% c("B", "b"), 1000000000, 0))))
+economic_data <- economic_data %>%  filter(PROPDMGEXP != 0 & CROPDMGEXP != 0)
+```
+
+
+The total damage is obtained by multiplying  `PROPDMG` with `PROPDMGEXP` and `CROPDMG` with `CROPDMGEXP` for the `economic_data`. Thus, defining a new variable `TotalPropertyDamage` and `TotalCropDamage`, respectively.
+
+``` {r multiplier, echo=TRUE, message=FALSE, warning=FALSE, include= TRUE, fig.align = "center"}
+options(scipen = 999)
+economic_data$TotalPropertyDamage <- economic_data$PROPDMG*economic_data$PROPDMGEXP
+economic_data$TotalCropDamage <- economic_data$CROPDMG*economic_data$CROPDMGEXP
+economic_data$PROPDMG <- NULL
+economic_data$PROPDMGEXP <- NULL
+economic_data$CROPDMG <- NULL
+economic_data$PROPDMGEXP <- NULL
+economic_data_reshaped <- melt(economic_data, id.vars = "EVTYPE", measure.vars = c("TotalPropertyDamage", "TotalCropDamage"))
+economic_data_reshaped <- economic_data_reshaped %>% rename(DAMAGE = variable, VALUE = value)
+kable(economic_data_reshaped[1:10,])
+
+```
+
+<br />
+
+## Results
+
+<br />
+
+### Question 1: Across the United States, which types of events (as indicated in the *EVTYPE* variable) are most harmful with respect to population health?
+
+##### Based from the figure, it can be seen that tornadoes have the highest number of fatalities and injuries with a huge margin.
+
+<br />
+
+``` {r question1, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE, fig.align = "center"}
+library(ggplot2)
+health_totals <- health_data_reshaped %>% 
+    group_by(EVTYPE, HARM) %>% 
+    summarise(total = sum(VALUE))
+fatalities_total <- health_totals %>%  filter(HARM=="FATALITIES")
+fatalities_total_sorted <- fatalities_total[order(fatalities_total$total, decreasing = TRUE), ][1:5,]
+injuries_total <- health_totals %>%  filter(HARM=="INJURIES")
+injuries_total_sorted <- injuries_total[order(injuries_total$total, decreasing = TRUE), ][1:5,]
+question1 <-rbind(fatalities_total_sorted, injuries_total_sorted)
+ggplot(question1, aes(fill=EVTYPE, y=total, x=EVTYPE)) + 
+        geom_bar(position="stack", stat="identity") +
+        facet_wrap(~HARM) +
+        ggtitle("Highest Damage Events for Population Health in the United States") +
+        xlab("Weather Event") +
+        ylab("Total Number of Affected") +
+        theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
+        theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+<br />
+
+### Question 2: Across the United States, which types of events have the greatest economic consequences?
+
+##### Lastly, it can be seen that floods have the highest consequence in the economy be it in terms of damage to property or damage to crops.
+
+<br />
+
+``` {r question2, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE, fig.align = "center"}
+library(ggplot2)
+economic_totals <- economic_data_reshaped %>% 
+    group_by(EVTYPE, DAMAGE) %>% 
+    summarise(total = sum(VALUE))
+prop_damage_total <- economic_totals %>%  filter(DAMAGE=="TotalPropertyDamage")
+prop_damage_total_sorted <- prop_damage_total[order(prop_damage_total$total, decreasing = TRUE), ][1:5,]
+crop_damage_total <- economic_totals %>%  filter(DAMAGE=="TotalCropDamage")
+crop_damage_total_sorted <- crop_damage_total[order(crop_damage_total$total, decreasing = TRUE), ][1:5,]
+question2 <-rbind(prop_damage_total_sorted, crop_damage_total_sorted)
+ggplot(question2, aes(fill=EVTYPE, y=total, x=EVTYPE)) + 
+        geom_bar(position="stack", stat="identity") +
+        facet_wrap(~DAMAGE) +
+        ggtitle("Highest Damage Events for Properties and Crops in the United States") +
+        xlab("Weather Event") +
+        ylab("Total Damage") +
+        theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
+        theme(plot.title = element_text(hjust = 0.5))
+```
